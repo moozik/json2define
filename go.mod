@@ -1,3 +1,3 @@
 module github.com/moozik/json2define
 
-go 1.22
+go 1.26

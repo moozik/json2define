@@ -71,11 +71,13 @@ src, err := json2define.GenerateFor[config.Config](data)
   JSON; numbers become `float64` to match `encoding/json`.
 - `[]byte` values from base64 JSON strings and `json.RawMessage`.
 - `time.Time` values parsed from RFC 3339 and a few common layouts.
-- Automatic import management and a small `json2definePtr` helper for
-  pointer-to-primitive values.
+- Automatic import management. Pointers are emitted with the Go 1.26
+  `new(expr)` built-in, so no helper function is required.
 - Unknown JSON keys are ignored; missing fields are left at their zero value.
 
 ## Development
+
+Requires Go 1.26 or newer: the generated code uses the `new(expr)` built-in.
 
 ```sh
 go test ./...

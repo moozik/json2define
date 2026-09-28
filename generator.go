@@ -35,8 +35,7 @@ func (g *Generator) buildExpr(t reflect.Type, v any) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		g.usedPtr = true
-		return "json2definePtr(" + inner + ")", nil
+		return "new(" + inner + ")", nil
 
 	case reflect.Bool:
 		b, ok := v.(bool)
@@ -276,8 +275,7 @@ func (g *Generator) structEntries(t reflect.Type, m map[string]any) ([]string, e
 				}
 				val := composite(g.typeString(et), sub)
 				if isPtr {
-					g.usedPtr = true
-					val = "json2definePtr(" + val + ")"
+					val = "new(" + val + ")"
 				}
 				entries = append(entries, f.Name+": "+val)
 				continue

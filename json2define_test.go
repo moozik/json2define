@@ -58,7 +58,7 @@ func TestGenerateFragments(t *testing.T) {
 		"1: 2.5",
 		"Nested: testtypes.Nested{",
 		"Flag: true",
-		"PtrInt: json2definePtr(7)",
+		"PtrInt: new(7)",
 		"PtrStr: nil",
 		"Any: map[string]any{",
 		"[]any{",
@@ -70,7 +70,6 @@ func TestGenerateFragments(t *testing.T) {
 		"package main",
 		`"github.com/moozik/json2define/internal/testtypes"`,
 		`"time"`,
-		"func json2definePtr[T any](v T) *T { return &v }",
 	}
 	for _, want := range wants {
 		if !contains(out, want) {

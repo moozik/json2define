@@ -27,7 +27,6 @@ type Generator struct {
 	samePkg     string
 
 	imports *importManager
-	usedPtr bool
 }
 
 // Option customizes a [Generator].
@@ -89,10 +88,6 @@ func (g *Generator) Generate(t reflect.Type, data []byte) (string, error) {
 		b.WriteString("\n")
 	}
 	fmt.Fprintf(&b, "var %s %s = %s\n", g.varName, typeName, expr)
-	if g.usedPtr {
-		b.WriteString("\n// json2definePtr returns a pointer to v.\n")
-		b.WriteString("func json2definePtr[T any](v T) *T { return &v }\n")
-	}
 
 	src := b.String()
 	formatted, err := format.Source([]byte(src))

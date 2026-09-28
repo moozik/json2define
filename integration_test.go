@@ -32,7 +32,7 @@ func TestGeneratedCodeCompiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), `module github.com/moozik/json2define/tmpgen
 
-go 1.22
+go 1.26
 
 require github.com/moozik/json2define v0.0.0
 
