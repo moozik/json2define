@@ -62,6 +62,29 @@ var Default Config = Config{
 src, err := json2define.GenerateFor[config.Config](data)
 ```
 
+## 使用替身类型进行反射
+
+反射需要具体的类型，但你可能不希望生成器为了拿到它而引入整个应用（以及它
+所有的依赖）。可以在一个轻量、无依赖的包里声明一个替身 struct，再告诉
+`json2define` 把它渲染成真实的包：
+
+```go
+// package standin：字段与 json tag 与 config.Config 完全一致
+type Config struct{ /* ... */ }
+
+src, err := json2define.Generate(
+	reflect.TypeOf(standin.Config{}),
+	data,
+	json2define.WithPackageRemap("your/gen/standin", "github.com/your/app/config"),
+)
+```
+
+所有从 `your/gen/standin` 反射得到的具名类型都会输出为 `config.X`，并自动
+添加真实包的 import。替换发生在源码构建过程中（限定符与 import 由生成器
+直接选择），而不是对生成结果做文本替换，因此结果天然正确。替身类型必须与
+真实类型做到字段、tag 完全一致；`json2define` 只会看到替身类型。如果生成
+文件就位于真实包内，请同时传入 `WithSamePackagePath`（传真实路径）。
+
 ## 支持的特性
 
 - Struct（json tag、`omitempty`、`,string`、`-`、大小写不敏感匹配、嵌入

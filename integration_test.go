@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/moozik/json2define/internal/standin"
 	"github.com/moozik/json2define/internal/testtypes"
 )
 
@@ -19,14 +20,39 @@ func TestGeneratedCodeCompiles(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	modRoot, err := filepath.Abs(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	code, err := Generate(reflect.TypeOf(testtypes.Sample{}), []byte(sampleJSON), WithVarName("sample"))
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
+	}
+	compileAndRun(t, code)
+}
+
+// TestGeneratedCodeCompilesWithPackageRemap reflects over the stand-in mirror,
+// remaps it onto testtypes, and checks the result still compiles and matches
+// encoding/json.
+func TestGeneratedCodeCompilesWithPackageRemap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	code, err := Generate(
+		reflect.TypeOf(standin.Sample{}),
+		[]byte(sampleJSON),
+		WithVarName("sample"),
+		WithPackageRemap(standinPkg, realPkg),
+	)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	compileAndRun(t, code)
+}
+
+func compileAndRun(t *testing.T, code string) {
+	t.Helper()
+
+	modRoot, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	dir := t.TempDir()

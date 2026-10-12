@@ -63,6 +63,32 @@ There is also a generic entry point:
 src, err := json2define.GenerateFor[config.Config](data)
 ```
 
+## Reflecting over a stand-in type
+
+Reflection needs the concrete type, but you may not want the generator binary
+to import your whole application (and its dependency tree) just to reach it.
+Declare a mirror of the struct in a small, dependency-free package and tell
+`json2define` to render it as the real package:
+
+```go
+// package standin: same fields and json tags as config.Config
+type Config struct{ /* ... */ }
+
+src, err := json2define.Generate(
+	reflect.TypeOf(standin.Config{}),
+	data,
+	json2define.WithPackageRemap("your/gen/standin", "github.com/your/app/config"),
+)
+```
+
+Every named type reflected from `your/gen/standin` is emitted as `config.X`,
+and the real import path is added automatically. The rewrite happens while the
+source is built (the qualifier and import are chosen by the generator), not by
+string-replacing the finished output, so the result is correct by construction.
+The mirror must match the real types field for field and tag for tag;
+`json2define` only ever sees the mirror. When the generated file lives in the
+real package, combine this with `WithSamePackagePath` (passing the *real* path).
+
 ## What is supported
 
 - Structs (json tags, `omitempty`, `,string`, `-`, case-insensitive matching,

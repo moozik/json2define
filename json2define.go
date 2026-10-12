@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
+	"path"
 	"reflect"
 	"strings"
 )
@@ -25,8 +26,16 @@ type Generator struct {
 	packageName string
 	varName     string
 	samePkg     string
+	remaps      map[string]packageRemap
 
 	imports *importManager
+}
+
+// packageRemap records how a stand-in package used only for reflection should
+// be rendered in the generated source.
+type packageRemap struct {
+	path string // real import path
+	name string // real package name used as the qualifier
 }
 
 // Option customizes a [Generator].
@@ -49,6 +58,29 @@ func WithVarName(name string) Option {
 // package qualifier and are not imported.
 func WithSamePackagePath(pkgPath string) Option {
 	return func(g *Generator) { g.samePkg = pkgPath }
+}
+
+// WithPackageRemap makes every named type that reflection reports as
+// belonging to the stand-in package fromPath be rendered as if it were
+// declared in the real package toPath.
+//
+// It lets callers reflect over a local mirror of a type -- a copy declared in
+// a dependency-free package -- while still generating a literal whose type is
+// the real one, so the generator never has to import the real package (and
+// everything that package drags in). The mirror must match the real package's
+// types exactly; json2define only ever sees the mirror.
+//
+// The qualifier is taken from the last element of toPath, and the real package
+// is imported unless toPath matches [WithSamePackagePath]. Remapping is applied
+// before the same-package check, so WithSamePackagePath should be given the
+// real path, not the stand-in path.
+func WithPackageRemap(fromPath, toPath string) Option {
+	return func(g *Generator) {
+		if g.remaps == nil {
+			g.remaps = make(map[string]packageRemap)
+		}
+		g.remaps[fromPath] = packageRemap{path: toPath, name: path.Base(toPath)}
+	}
 }
 
 // New returns a Generator configured with opts.

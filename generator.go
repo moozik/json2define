@@ -399,15 +399,26 @@ func (g *Generator) zeroValue(t reflect.Type) string {
 
 // typeString renders t as a Go type expression, registering imports for any
 // referenced package.
+//
+// Named types that live in a remapped stand-in package (see
+// [WithPackageRemap]) are rendered against the real package instead, so the
+// generated code references the target package even though reflection only saw
+// the mirror.
 func (g *Generator) typeString(t reflect.Type) string {
 	if t == nil {
 		return "any"
 	}
 	if t.Name() != "" {
-		if t.PkgPath() == "" || t.PkgPath() == g.samePkg {
+		pkgPath, name := t.PkgPath(), packageName(t)
+		if pkgPath != "" {
+			if rm, ok := g.remaps[pkgPath]; ok {
+				pkgPath, name = rm.path, rm.name
+			}
+		}
+		if pkgPath == "" || pkgPath == g.samePkg {
 			return t.Name()
 		}
-		return g.imports.qualifier(t.PkgPath(), packageName(t)) + "." + t.Name()
+		return g.imports.qualifier(pkgPath, name) + "." + t.Name()
 	}
 	switch t.Kind() {
 	case reflect.Pointer:

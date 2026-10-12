@@ -6,7 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/moozik/json2define/internal/standin"
 	"github.com/moozik/json2define/internal/testtypes"
+)
+
+const (
+	standinPkg = "github.com/moozik/json2define/internal/standin"
+	realPkg    = "github.com/moozik/json2define/internal/testtypes"
 )
 
 var whitespace = regexp.MustCompile(`\s+`)
@@ -137,5 +143,53 @@ func TestGenerateFor(t *testing.T) {
 	}
 	if !strings.Contains(out, "var value testtypes.Nested = testtypes.Nested{") {
 		t.Errorf("unexpected output:\n%s", out)
+	}
+}
+
+// TestGeneratePackageRemap reflects over the stand-in mirror but expects the
+// real testtypes package to be referenced and imported.
+func TestGeneratePackageRemap(t *testing.T) {
+	out, err := Generate(
+		reflect.TypeOf(standin.Sample{}),
+		[]byte(sampleJSON),
+		WithPackageRemap(standinPkg, realPkg),
+	)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	wants := []string{
+		"var value testtypes.Sample = testtypes.Sample{",
+		"Nested: testtypes.Nested{",
+		"Embedded: testtypes.Embedded{",
+		`"github.com/moozik/json2define/internal/testtypes"`,
+	}
+	for _, want := range wants {
+		if !contains(out, want) {
+			t.Errorf("generated code missing %q\n---\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "standin") {
+		t.Errorf("stand-in package must not appear in generated code:\n%s", out)
+	}
+}
+
+// TestGeneratePackageRemapSamePackage remaps the stand-in onto the package that
+// will hold the generated file, so the qualifier is dropped entirely.
+func TestGeneratePackageRemapSamePackage(t *testing.T) {
+	out, err := Generate(
+		reflect.TypeOf(standin.Nested{}),
+		[]byte(`{"flag":true,"score":2}`),
+		WithPackageRemap(standinPkg, realPkg),
+		WithSamePackagePath(realPkg),
+	)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !strings.Contains(out, "var value Nested = Nested{") {
+		t.Errorf("expected an unqualified type:\n%s", out)
+	}
+	if strings.Contains(out, "testtypes") || strings.Contains(out, "standin") {
+		t.Errorf("same-package types must not be qualified:\n%s", out)
 	}
 }
