@@ -24,7 +24,7 @@ func TestGeneratedCodeCompiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	compileAndRun(t, code)
+	compileAndRun(t, code, "sample", "testtypes.Sample", sampleJSON)
 }
 
 // TestGeneratedCodeCompilesWithPackageRemap reflects over the stand-in mirror,
@@ -44,10 +44,66 @@ func TestGeneratedCodeCompilesWithPackageRemap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	compileAndRun(t, code)
+	compileAndRun(t, code, "sample", "testtypes.Sample", sampleJSON)
 }
 
-func compileAndRun(t *testing.T, code string) {
+// TestGeneratedCodeCompilesWithEnumConstants checks that generated enum
+// constants compile and that the initialized value matches encoding/json.
+func TestGeneratedCodeCompilesWithEnumConstants(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	opts := append([]Option{WithVarName("features")}, testtypesEnums()...)
+	code, err := Generate(
+		reflect.TypeOf(testtypes.Features{}),
+		[]byte(featureJSON),
+		opts...,
+	)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	compileAndRun(t, code, "features", "testtypes.Features", featureJSON)
+}
+
+// TestGeneratedCodeCompilesWithEnumConstantsAndRemap reflects over the
+// stand-in enums, remaps them onto testtypes, and checks the generated
+// constants still compile and match encoding/json.
+func TestGeneratedCodeCompilesWithEnumConstantsAndRemap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	opts := append(standinEnums(), WithPackageRemap(standinPkg, realPkg))
+	code, err := Generate(reflect.TypeOf(standin.Features{}), []byte(featureJSON), opts...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	compileAndRun(t, code, "value", "testtypes.Features", featureJSON)
+}
+
+// TestGeneratedCodeCompilesWithCompactStructs checks that a struct rendered on
+// one line, with its type name elided in a slice, still compiles and matches
+// encoding/json.
+func TestGeneratedCodeCompilesWithCompactStructs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	opts := append([]Option{WithVarName("list")}, testtypesEnums()...)
+	opts = append(opts, compactFeatureSpec())
+	code, err := Generate(
+		reflect.TypeOf(testtypes.FeatureList{}),
+		[]byte(featureListJSON),
+		opts...,
+	)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	compileAndRun(t, code, "list", "testtypes.FeatureList", featureListJSON)
+}
+
+func compileAndRun(t *testing.T, code, varName, targetType, rawJSON string) {
 	t.Helper()
 
 	modRoot, err := filepath.Abs(".")
@@ -76,16 +132,16 @@ import (
 	"github.com/moozik/json2define/internal/testtypes"
 )
 
-const rawJSON = ` + "`" + sampleJSON + "`" + `
+const rawJSON = ` + "`" + rawJSON + "`" + `
 
 func main() {
-	var want testtypes.Sample
+	var want ` + targetType + `
 	if err := json.Unmarshal([]byte(rawJSON), &want); err != nil {
 		panic(err)
 	}
-	if !reflect.DeepEqual(sample, want) {
-		got, _ := json.MarshalIndent(sample, "", "  ")
-		fmt.Printf("value mismatch\nwant: %+v\ngot:  %+v\n%s\n", want, sample, got)
+	if !reflect.DeepEqual(` + varName + `, want) {
+		got, _ := json.MarshalIndent(` + varName + `, "", "  ")
+		fmt.Printf("value mismatch\nwant: %+v\ngot:  %+v\n%s\n", want, ` + varName + `, got)
 		os.Exit(1)
 	}
 	fmt.Println("OK")

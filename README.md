@@ -89,6 +89,94 @@ The mirror must match the real types field for field and tag for tag;
 `json2define` only ever sees the mirror. When the generated file lives in the
 real package, combine this with `WithSamePackagePath` (passing the *real* path).
 
+## Enums as named constants
+
+A field whose type is a defined string, integer, or bool type is rendered as a
+conversion, e.g. `example.FeatureFrom("request")`. When that package declares a
+constant for the value, register it so the generator emits the constant instead:
+
+```go
+json2define.WithEnumConstants(
+	reflect.TypeOf(example.FeatureFrom("")),
+	map[string]string{
+		"request": "FeatureFromRequest",
+		"redis":   "FeatureFromRedis",
+	},
+)
+```
+
+Output:
+
+```go
+From: example.FeatureFromRequest,
+```
+
+The map key is the value as it appears in the JSON and the value is the
+constant's identifier. A constant is assumed to live next to its type, so it is
+qualified exactly like the type -- package remaps and the same-package rule
+apply unchanged:
+
+- with `WithPackageRemap`, the constant is rendered against the real package
+  (`example.FeatureFromRequest`) and the real import is added;
+- with `WithSamePackagePath`, it is emitted unqualified (`FeatureFromRequest`).
+
+Registration is keyed by the type reflection reports, so pass the same (possibly
+stand-in) type the generator reflects over.
+
+For a constant declared in a different package, use `WithEnumConstantIn` and give
+that package's import path as reflection reports it (so remaps apply to it too):
+
+```go
+json2define.WithEnumConstantIn(
+	reflect.TypeOf(example.Level(0)), "1", "example.com/levels", "High",
+)
+```
+
+Enum constants are substituted for scalar fields, `,string` fields, and map keys.
+
+## Compact struct literals
+
+By default every struct is expanded one field per line. For small, scalar-only
+structs -- feature descriptors, table rows -- that is noisy. Pass
+`WithCompactStructs` with a predicate selecting the types to inline:
+
+```go
+json2define.WithCompactStructs(func(t reflect.Type) bool {
+	return t == reflect.TypeOf(spec.Feature{})
+})
+```
+
+A selected struct is rendered on a single line. When it appears as a slice,
+array, or map element its redundant type name is elided, matching Go's
+composite-literal elision:
+
+```go
+Features: []spec.Feature{
+	{Field: "af_media_source", From: spec.FeatureFromRequest, Type: spec.FeatureTypeString, Default: -1},
+	{Field: "af_other", From: spec.FeatureFromRedis, Type: spec.FeatureTypeBool, Default: 0},
+},
+```
+
+instead of:
+
+```go
+Features: []spec.Feature{
+	spec.Feature{
+		Field:   "af_media_source",
+		From:    spec.FeatureFromRequest,
+		Type:    spec.FeatureTypeString,
+		Default: -1,
+	},
+},
+```
+
+The option applies wherever the selected type appears (top level, slice or map
+element, nested field). Only structs are eligible: the enclosing slice, array,
+or map keeps the multi-line form. A selected struct whose field renders on more
+than one line (a slice field, for example) stays multi-line too, so nested
+values are never crammed onto one line. Without the option the output is
+unchanged.
+
 ## What is supported
 
 - Structs (json tags, `omitempty`, `,string`, `-`, case-insensitive matching,
@@ -97,6 +185,10 @@ real package, combine this with `WithSamePackagePath` (passing the *real* path).
   JSON; numbers become `float64` to match `encoding/json`.
 - `[]byte` values from base64 JSON strings and `json.RawMessage`.
 - `time.Time` values parsed from RFC 3339 and a few common layouts.
+- Named enum values emitted as their Go constants (`WithEnumConstants`,
+  `WithEnumConstantIn`), for scalar fields, `,string` fields, and map keys.
+- Compact (`WithCompactStructs`) single-line struct literals, with the element
+  type elided inside slices, arrays, and maps.
 - Automatic import management. Pointers are emitted with the Go 1.26
   `new(expr)` built-in, so no helper function is required.
 - Unknown JSON keys are ignored; missing fields are left at their zero value.

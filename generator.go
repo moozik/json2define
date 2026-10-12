@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"path"
 	"reflect"
 	"sort"
 	"strconv"
@@ -42,14 +43,15 @@ func (g *Generator) buildExpr(t reflect.Type, v any) (string, error) {
 		if !ok {
 			return "", typeMismatch(t, v)
 		}
-		return g.scalar(t, strconv.FormatBool(b)), nil
+		lit := strconv.FormatBool(b)
+		return g.scalarExpr(t, lit, lit), nil
 
 	case reflect.String:
 		s, ok := v.(string)
 		if !ok {
 			return "", typeMismatch(t, v)
 		}
-		return g.scalar(t, strconv.Quote(s)), nil
+		return g.scalarExpr(t, s, strconv.Quote(s)), nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return g.buildInt(t, v)
@@ -89,13 +91,14 @@ func (g *Generator) buildInt(t reflect.Type, v any) (string, error) {
 		return "", typeMismatch(t, v)
 	}
 	if isIntegerLiteral(n) {
-		return g.scalar(t, n), nil
+		return g.scalarExpr(t, n, n), nil
 	}
 	f, err := strconv.ParseFloat(n, 64)
 	if err != nil {
 		return "", fmt.Errorf("json2define: invalid number %q for %s", n, t)
 	}
-	return g.scalar(t, strconv.FormatInt(int64(f), 10)), nil
+	lit := strconv.FormatInt(int64(f), 10)
+	return g.scalarExpr(t, lit, lit), nil
 }
 
 func (g *Generator) buildUint(t reflect.Type, v any) (string, error) {
@@ -104,13 +107,14 @@ func (g *Generator) buildUint(t reflect.Type, v any) (string, error) {
 		return "", typeMismatch(t, v)
 	}
 	if isIntegerLiteral(n) {
-		return g.scalar(t, n), nil
+		return g.scalarExpr(t, n, n), nil
 	}
 	f, err := strconv.ParseFloat(n, 64)
 	if err != nil {
 		return "", fmt.Errorf("json2define: invalid number %q for %s", n, t)
 	}
-	return g.scalar(t, strconv.FormatUint(uint64(f), 10)), nil
+	lit := strconv.FormatUint(uint64(f), 10)
+	return g.scalarExpr(t, lit, lit), nil
 }
 
 func (g *Generator) buildFloat(t reflect.Type, v any) (string, error) {
@@ -118,7 +122,7 @@ func (g *Generator) buildFloat(t reflect.Type, v any) (string, error) {
 	if !ok {
 		return "", typeMismatch(t, v)
 	}
-	return g.scalar(t, n), nil
+	return g.scalarExpr(t, n, n), nil
 }
 
 func (g *Generator) buildSlice(t reflect.Type, v any) (string, error) {
@@ -144,13 +148,13 @@ func (g *Generator) buildSlice(t reflect.Type, v any) (string, error) {
 	}
 	entries := make([]string, len(arr))
 	for i, e := range arr {
-		ex, err := g.buildExpr(elem, e)
+		ex, err := g.buildElem(elem, e)
 		if err != nil {
 			return "", err
 		}
 		entries[i] = ex
 	}
-	return composite(g.typeString(t), entries), nil
+	return g.composite(g.typeString(t), t, entries), nil
 }
 
 func (g *Generator) buildArray(t reflect.Type, v any) (string, error) {
@@ -166,13 +170,13 @@ func (g *Generator) buildArray(t reflect.Type, v any) (string, error) {
 	}
 	entries := make([]string, len(arr))
 	for i, e := range arr {
-		ex, err := g.buildExpr(t.Elem(), e)
+		ex, err := g.buildElem(t.Elem(), e)
 		if err != nil {
 			return "", err
 		}
 		entries[i] = ex
 	}
-	return composite(g.typeString(t), entries), nil
+	return g.composite(g.typeString(t), t, entries), nil
 }
 
 func (g *Generator) buildMap(t reflect.Type, v any) (string, error) {
@@ -195,42 +199,77 @@ func (g *Generator) buildMap(t reflect.Type, v any) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		val, err := g.buildExpr(t.Elem(), m[k])
+		val, err := g.buildElem(t.Elem(), m[k])
 		if err != nil {
 			return "", err
 		}
 		entries = append(entries, key+": "+val)
 	}
-	return composite(g.typeString(t), entries), nil
+	return g.composite(g.typeString(t), t, entries), nil
 }
 
 func (g *Generator) buildMapKey(t reflect.Type, key string) (string, error) {
 	switch t.Kind() {
 	case reflect.String:
-		return g.scalar(t, strconv.Quote(key)), nil
+		return g.scalarExpr(t, key, strconv.Quote(key)), nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if _, err := strconv.ParseInt(key, 10, 64); err != nil {
 			return "", fmt.Errorf("json2define: map key %q is not a valid %s", key, t)
 		}
-		return g.scalar(t, key), nil
+		return g.scalarExpr(t, key, key), nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		if _, err := strconv.ParseUint(key, 10, 64); err != nil {
 			return "", fmt.Errorf("json2define: map key %q is not a valid %s", key, t)
 		}
-		return g.scalar(t, key), nil
+		return g.scalarExpr(t, key, key), nil
 	case reflect.Float32, reflect.Float64:
 		if _, err := strconv.ParseFloat(key, 64); err != nil {
 			return "", fmt.Errorf("json2define: map key %q is not a valid %s", key, t)
 		}
-		return g.scalar(t, key), nil
+		return g.scalarExpr(t, key, key), nil
 	case reflect.Bool:
 		if _, err := strconv.ParseBool(key); err != nil {
 			return "", fmt.Errorf("json2define: map key %q is not a valid %s", key, t)
 		}
-		return g.scalar(t, key), nil
+		return g.scalarExpr(t, key, key), nil
 	default:
 		return "", fmt.Errorf("json2define: unsupported map key type %s", t)
 	}
+}
+
+// buildElem renders a value that appears as a slice, array, or map element.
+//
+// When the element type is a struct selected by [WithCompactStructs], the
+// redundant element type name is dropped, matching Go's composite-literal
+// elision: `[]T{{...}}` instead of `[]T{T{...}}`. The type name is only omitted
+// when buildExpr actually produced a literal of that type, so values rendered
+// differently (a pointer, say) keep their own form.
+func (g *Generator) buildElem(t reflect.Type, v any) (string, error) {
+	ex, err := g.buildExpr(t, v)
+	if err != nil {
+		return "", err
+	}
+	if g.compactType(t) {
+		return elideType(ex, g.typeString(t)), nil
+	}
+	return ex, nil
+}
+
+// compactType reports whether a literal of type t should use the compact,
+// single-line form. Only structs are eligible, so the enclosing slice, array,
+// or map keeps the multi-line form while its elements are inlined individually.
+func (g *Generator) compactType(t reflect.Type) bool {
+	return g.compact != nil && t != nil && t.Kind() == reflect.Struct && g.compact(t)
+}
+
+// elideType removes the leading type name from a composite literal expression,
+// turning "T{...}" into "{...}". It is a no-op when expr does not begin with the
+// literal form of typeName.
+func elideType(expr, typeName string) string {
+	if strings.HasPrefix(expr, typeName+"{") {
+		return expr[len(typeName):]
+	}
+	return expr
 }
 
 func (g *Generator) buildStruct(t reflect.Type, v any) (string, error) {
@@ -242,7 +281,7 @@ func (g *Generator) buildStruct(t reflect.Type, v any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return composite(g.typeString(t), entries), nil
+	return g.composite(g.typeString(t), t, entries), nil
 }
 
 // structEntries resolves the JSON object m against the fields of struct
@@ -273,7 +312,7 @@ func (g *Generator) structEntries(t reflect.Type, m map[string]any) ([]string, e
 				if len(sub) == 0 {
 					continue
 				}
-				val := composite(g.typeString(et), sub)
+				val := g.composite(g.typeString(et), et, sub)
 				if isPtr {
 					val = "new(" + val + ")"
 				}
@@ -305,31 +344,35 @@ func (g *Generator) fieldValue(t reflect.Type, ft fieldTag, v any) (string, erro
 
 	switch t.Kind() {
 	case reflect.String:
-		return g.scalar(t, strconv.Quote(s)), nil
+		return g.scalarExpr(t, s, strconv.Quote(s)), nil
 	case reflect.Bool:
 		b, err := strconv.ParseBool(s)
 		if err != nil {
 			return "", fmt.Errorf("json2define: invalid bool %q for %s", s, t)
 		}
-		return g.scalar(t, strconv.FormatBool(b)), nil
+		lit := strconv.FormatBool(b)
+		return g.scalarExpr(t, lit, lit), nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
 			return "", fmt.Errorf("json2define: invalid int %q for %s", s, t)
 		}
-		return g.scalar(t, strconv.FormatInt(n, 10)), nil
+		lit := strconv.FormatInt(n, 10)
+		return g.scalarExpr(t, lit, lit), nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		n, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
 			return "", fmt.Errorf("json2define: invalid uint %q for %s", s, t)
 		}
-		return g.scalar(t, strconv.FormatUint(n, 10)), nil
+		lit := strconv.FormatUint(n, 10)
+		return g.scalarExpr(t, lit, lit), nil
 	case reflect.Float32, reflect.Float64:
 		f, err := strconv.ParseFloat(s, 64)
 		if err != nil {
 			return "", fmt.Errorf("json2define: invalid float %q for %s", s, t)
 		}
-		return g.scalar(t, strconv.FormatFloat(f, 'g', -1, 64)), nil
+		lit := strconv.FormatFloat(f, 'g', -1, 64)
+		return g.scalarExpr(t, lit, lit), nil
 	default:
 		return "", fmt.Errorf("json2define: unsupported ,string field type %s", t)
 	}
@@ -380,6 +423,38 @@ func (g *Generator) scalar(t reflect.Type, literal string) string {
 	return literal
 }
 
+// scalarExpr renders a scalar value of type t, preferring a registered enum
+// constant over a conversion. value is the raw value (unquoted, and normalized
+// for numbers) used to look the constant up; literal is the Go literal used
+// when no constant is registered.
+func (g *Generator) scalarExpr(t reflect.Type, value, literal string) string {
+	if ex, ok := g.enumConstant(t, value); ok {
+		return ex
+	}
+	return g.scalar(t, literal)
+}
+
+// enumConstant returns the Go expression to use for value when t is a named
+// enum type with a registered constant, and whether one was found.
+//
+// The constant is qualified through [Generator.refQualifier], so when its
+// package is the target of a [WithPackageRemap] it is rendered against the real
+// path and the real import is registered, exactly like the type itself.
+func (g *Generator) enumConstant(t reflect.Type, value string) (string, bool) {
+	ref, ok := g.enums[enumKey{t.PkgPath(), t.Name()}][value]
+	if !ok {
+		return "", false
+	}
+	pkgPath, pkgName := t.PkgPath(), packageName(t)
+	if ref.pkgPath != "" { // the constant lives in a different package
+		pkgPath, pkgName = ref.pkgPath, path.Base(ref.pkgPath)
+	}
+	if q := g.refQualifier(pkgPath, pkgName); q != "" {
+		return q + "." + ref.name, true
+	}
+	return ref.name, true
+}
+
 func (g *Generator) zeroValue(t reflect.Type) string {
 	switch t.Kind() {
 	case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan:
@@ -397,6 +472,26 @@ func (g *Generator) zeroValue(t reflect.Type) string {
 	}
 }
 
+// refQualifier returns the qualifier to use when referencing a member of the
+// package that declares a type, or "" when the member must be emitted without a
+// qualifier (the universe scope, or the package that will hold the generated
+// file).
+//
+// Package remaps are applied first, so a type reflected from a stand-in package
+// is rendered against the real package, and the same-package test runs against
+// the real path -- matching [WithSamePackagePath]'s contract.
+func (g *Generator) refQualifier(pkgPath, pkgName string) string {
+	if pkgPath != "" {
+		if rm, ok := g.remaps[pkgPath]; ok {
+			pkgPath, pkgName = rm.path, rm.name
+		}
+	}
+	if pkgPath == "" || pkgPath == g.samePkg {
+		return ""
+	}
+	return g.imports.qualifier(pkgPath, pkgName)
+}
+
 // typeString renders t as a Go type expression, registering imports for any
 // referenced package.
 //
@@ -409,16 +504,10 @@ func (g *Generator) typeString(t reflect.Type) string {
 		return "any"
 	}
 	if t.Name() != "" {
-		pkgPath, name := t.PkgPath(), packageName(t)
-		if pkgPath != "" {
-			if rm, ok := g.remaps[pkgPath]; ok {
-				pkgPath, name = rm.path, rm.name
-			}
+		if q := g.refQualifier(t.PkgPath(), packageName(t)); q != "" {
+			return q + "." + t.Name()
 		}
-		if pkgPath == "" || pkgPath == g.samePkg {
-			return t.Name()
-		}
-		return g.imports.qualifier(pkgPath, name) + "." + t.Name()
+		return t.Name()
 	}
 	switch t.Kind() {
 	case reflect.Pointer:
@@ -499,11 +588,17 @@ func (g *Generator) buildTime(v any) string {
 	return "time.Time{}"
 }
 
-// composite renders a (possibly keyed) list of entries as a composite
-// literal. gofmt normalizes the indentation afterwards.
-func composite(typeName string, entries []string) string {
+// composite renders a (possibly keyed) list of entries as a composite literal.
+//
+// When t is a struct selected by [WithCompactStructs] and every entry fits on a
+// single line, the literal is rendered on one line; otherwise the entries get
+// the usual one-per-line layout. gofmt normalizes the indentation afterwards.
+func (g *Generator) composite(typeName string, t reflect.Type, entries []string) string {
 	if len(entries) == 0 {
 		return typeName + "{}"
+	}
+	if g.compactType(t) && singleLine(entries) {
+		return typeName + "{" + strings.Join(entries, ", ") + "}"
 	}
 	var b strings.Builder
 	b.WriteString(typeName)
@@ -515,6 +610,18 @@ func composite(typeName string, entries []string) string {
 	}
 	b.WriteString("}")
 	return b.String()
+}
+
+// singleLine reports whether every entry renders on one line, so that joining
+// them keeps the whole literal on a single line. A field whose value is itself a
+// multi-line literal (a slice, for example) forces the multi-line form.
+func singleLine(entries []string) bool {
+	for _, e := range entries {
+		if strings.Contains(e, "\n") {
+			return false
+		}
+	}
+	return true
 }
 
 func asNumber(v any) (string, bool) {

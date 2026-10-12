@@ -193,3 +193,223 @@ func TestGeneratePackageRemapSamePackage(t *testing.T) {
 		t.Errorf("same-package types must not be qualified:\n%s", out)
 	}
 }
+
+const featureJSON = `{"from":"request","type":"float32","level":1,"by_key":{"request":1,"redis":2}}`
+
+// enumOptions registers the enum constants used by Features for the given
+// (possibly stand-in) enum types. The key is the type reflection reports, so it
+// must be the same mirror the generator reflects over.
+func enumOptions(from, featureType, level reflect.Type) []Option {
+	return []Option{
+		WithEnumConstants(from, map[string]string{
+			"request": "FeatureFromRequest",
+			"redis":   "FeatureFromRedis",
+			"other":   "FeatureFromOther",
+		}),
+		WithEnumConstants(featureType, map[string]string{
+			"float32": "FeatureTypeFloat32",
+			"string":  "FeatureTypeString",
+			"bool":    "FeatureTypeBool",
+		}),
+		WithEnumConstants(level, map[string]string{
+			"1": "LevelHigh",
+		}),
+	}
+}
+
+func testtypesEnums() []Option {
+	return enumOptions(
+		reflect.TypeOf(testtypes.FeatureFrom("")),
+		reflect.TypeOf(testtypes.FeatureType("")),
+		reflect.TypeOf(testtypes.Level(0)),
+	)
+}
+
+func standinEnums() []Option {
+	return enumOptions(
+		reflect.TypeOf(standin.FeatureFrom("")),
+		reflect.TypeOf(standin.FeatureType("")),
+		reflect.TypeOf(standin.Level(0)),
+	)
+}
+
+// TestGenerateEnumConstants replaces conversions such as
+// testtypes.FeatureFrom("request") with the registered constant.
+func TestGenerateEnumConstants(t *testing.T) {
+	out, err := Generate(reflect.TypeOf(testtypes.Features{}), []byte(featureJSON), testtypesEnums()...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	wants := []string{
+		"From: testtypes.FeatureFromRequest",
+		"Type: testtypes.FeatureTypeFloat32",
+		"Level: testtypes.LevelHigh",
+		"testtypes.FeatureFromRequest: 1",
+		"testtypes.FeatureFromRedis: 2",
+	}
+	for _, want := range wants {
+		if !contains(out, want) {
+			t.Errorf("generated code missing %q\n---\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{`FeatureFrom("request")`, `FeatureType("float32")`, "Level(1)"} {
+		if strings.Contains(out, notWant) {
+			t.Errorf("enum conversion %q must be replaced by a constant:\n%s", notWant, out)
+		}
+	}
+}
+
+// TestGenerateEnumConstantsStringTag covers the ",string" field path.
+func TestGenerateEnumConstantsStringTag(t *testing.T) {
+	type target struct {
+		From testtypes.FeatureFrom `json:"from,string"`
+	}
+	out, err := Generate(reflect.TypeOf(target{}), []byte(`{"from":"request"}`), testtypesEnums()...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !contains(out, "From: testtypes.FeatureFromRequest") {
+		t.Errorf("expected enum constant for a ,string field:\n%s", out)
+	}
+}
+
+// TestGenerateEnumConstantsWithRemap reflects over the stand-in enums and
+// expects the constants to be qualified with, and imported from, the real
+// package.
+func TestGenerateEnumConstantsWithRemap(t *testing.T) {
+	opts := append(standinEnums(), WithPackageRemap(standinPkg, realPkg))
+	out, err := Generate(reflect.TypeOf(standin.Features{}), []byte(featureJSON), opts...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	wants := []string{
+		"From: testtypes.FeatureFromRequest",
+		"Type: testtypes.FeatureTypeFloat32",
+		"Level: testtypes.LevelHigh",
+		"testtypes.FeatureFromRedis: 2",
+		`"github.com/moozik/json2define/internal/testtypes"`,
+	}
+	for _, want := range wants {
+		if !contains(out, want) {
+			t.Errorf("generated code missing %q\n---\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "standin") {
+		t.Errorf("stand-in package must not appear in generated code:\n%s", out)
+	}
+}
+
+// TestGenerateEnumConstantsSamePackage remaps the stand-in onto the package
+// that will hold the generated file, so constants are emitted unqualified.
+func TestGenerateEnumConstantsSamePackage(t *testing.T) {
+	opts := append(standinEnums(),
+		WithPackageRemap(standinPkg, realPkg),
+		WithSamePackagePath(realPkg),
+	)
+	out, err := Generate(reflect.TypeOf(standin.Features{}), []byte(featureJSON), opts...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{"From: FeatureFromRequest", "Level: LevelHigh"} {
+		if !contains(out, want) {
+			t.Errorf("generated code missing %q\n---\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "testtypes") || strings.Contains(out, "standin") {
+		t.Errorf("same-package constants must not be qualified:\n%s", out)
+	}
+}
+
+// TestGenerateEnumConstantInOtherPackage registers a constant that lives in a
+// package different from its enum type's. That package is itself remapped, so
+// the constant must be rendered against the real package and import.
+func TestGenerateEnumConstantInOtherPackage(t *testing.T) {
+	out, err := Generate(
+		reflect.TypeOf(testtypes.Features{}),
+		[]byte(`{"level":1}`),
+		WithEnumConstantIn(reflect.TypeOf(testtypes.Level(0)), "1", standinPkg, "LevelHigh"),
+		WithPackageRemap(standinPkg, realPkg),
+	)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !contains(out, "Level: testtypes.LevelHigh") {
+		t.Errorf("constant from a remapped package must use the real qualifier:\n%s", out)
+	}
+	if strings.Contains(out, "standin") {
+		t.Errorf("stand-in package must not appear in generated code:\n%s", out)
+	}
+}
+
+const featureListJSON = `{"features":[
+	{"field":"af_media_source","from":"request","type":"string","default":-1},
+	{"field":"af_other","from":"redis","type":"bool","default":0}
+]}`
+
+func compactFeatureSpec() Option {
+	return WithCompactStructs(func(t reflect.Type) bool {
+		return t == reflect.TypeOf(testtypes.FeatureSpec{})
+	})
+}
+
+// TestGenerateCompactStructs renders a selected struct on a single line and
+// elides its type name when it is a slice element, matching the concise
+// []T{{...}} form.
+func TestGenerateCompactStructs(t *testing.T) {
+	opts := append(testtypesEnums(), compactFeatureSpec())
+	out, err := Generate(reflect.TypeOf(testtypes.FeatureList{}), []byte(featureListJSON), opts...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	want := `Features: []testtypes.FeatureSpec{
+		{Field: "af_media_source", From: testtypes.FeatureFromRequest, Type: testtypes.FeatureTypeString, Default: -1},
+		{Field: "af_other", From: testtypes.FeatureFromRedis, Type: testtypes.FeatureTypeBool, Default: 0},
+	}`
+	if !contains(out, want) {
+		t.Errorf("compact structs not rendered as expected:\n%s", out)
+	}
+	// The selected struct must not keep the one-field-per-line layout.
+	if strings.Contains(out, "Default: -1,\n\t\t}") {
+		t.Errorf("selected struct must be inlined:\n%s", out)
+	}
+}
+
+// TestGenerateWithoutCompactStructs confirms the default stays multi-line.
+func TestGenerateWithoutCompactStructs(t *testing.T) {
+	out, err := Generate(reflect.TypeOf(testtypes.FeatureList{}), []byte(featureListJSON), testtypesEnums()...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !contains(out, "testtypes.FeatureSpec{\n\t\t\tField:") {
+		t.Errorf("expected the default multi-line literal:\n%s", out)
+	}
+}
+
+// TestGenerateCompactStructsWithRemap selects a struct reflected from the
+// stand-in package and expects the elided element type to use the real package.
+func TestGenerateCompactStructsWithRemap(t *testing.T) {
+	opts := append(standinEnums(),
+		WithPackageRemap(standinPkg, realPkg),
+		WithCompactStructs(func(t reflect.Type) bool {
+			return t == reflect.TypeOf(standin.FeatureSpec{})
+		}),
+	)
+	out, err := Generate(reflect.TypeOf(standin.FeatureList{}), []byte(featureListJSON), opts...)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	want := `Features: []testtypes.FeatureSpec{
+		{Field: "af_media_source", From: testtypes.FeatureFromRequest, Type: testtypes.FeatureTypeString, Default: -1},
+		{Field: "af_other", From: testtypes.FeatureFromRedis, Type: testtypes.FeatureTypeBool, Default: 0},
+	}`
+	if !contains(out, want) {
+		t.Errorf("remapped compact structs not rendered as expected:\n%s", out)
+	}
+	if strings.Contains(out, "standin") {
+		t.Errorf("stand-in package must not appear in generated code:\n%s", out)
+	}
+}

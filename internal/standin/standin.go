@@ -35,3 +35,37 @@ type Sample struct {
 	Ignored string            `json:"-"`
 	Embedded
 }
+
+// FeatureFrom mirrors testtypes.FeatureFrom.
+type FeatureFrom string
+
+// FeatureType mirrors testtypes.FeatureType.
+type FeatureType string
+
+// Level mirrors testtypes.Level.
+type Level int
+
+// LevelHigh mirrors testtypes.LevelHigh so that a constant declared in a
+// remapped package can be rendered against the real one.
+const LevelHigh Level = 1
+
+// Features mirrors testtypes.Features.
+type Features struct {
+	From  FeatureFrom         `json:"from"`
+	Type  FeatureType         `json:"type"`
+	Level Level               `json:"level"`
+	ByKey map[FeatureFrom]int `json:"by_key"`
+}
+
+// FeatureSpec mirrors testtypes.FeatureSpec.
+type FeatureSpec struct {
+	Field   string      `json:"field"`
+	From    FeatureFrom `json:"from"`
+	Type    FeatureType `json:"type"`
+	Default int         `json:"default"`
+}
+
+// FeatureList mirrors testtypes.FeatureList.
+type FeatureList struct {
+	Features []FeatureSpec `json:"features"`
+}

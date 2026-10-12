@@ -85,6 +85,89 @@ src, err := json2define.Generate(
 真实类型做到字段、tag 完全一致；`json2define` 只会看到替身类型。如果生成
 文件就位于真实包内，请同时传入 `WithSamePackagePath`（传真实路径）。
 
+## 将枚举值渲染为具名常量
+
+若字段类型是定义的 string、整数或 bool 类型，生成结果是类型转换，例如
+`example.FeatureFrom("request")`。当该包为这些值声明了常量时，注册后生成器会直接
+输出常量：
+
+```go
+json2define.WithEnumConstants(
+	reflect.TypeOf(example.FeatureFrom("")),
+	map[string]string{
+		"request": "FeatureFromRequest",
+		"redis":   "FeatureFromRedis",
+	},
+)
+```
+
+输出：
+
+```go
+From: example.FeatureFromRequest,
+```
+
+map 的键是 JSON 中出现的值，值是对应的常量标识符。默认常量与其类型位于同一个
+包，因此限定符与类型完全一致，`WithPackageRemap` 与同包规则一并生效：
+
+- 使用 `WithPackageRemap` 时，常量按真实包输出（`example.FeatureFromRequest`），并
+  添加真实包的 import；
+- 使用 `WithSamePackagePath` 时，常量不带限定符输出（`FeatureFromRequest`）。
+
+注册以"反射报告的类型"为键，因此请传入生成器实际反射的那个（可能是替身的）
+类型。
+
+如果常量声明在另一个包，请使用 `WithEnumConstantIn`，并传入该包的 import 路径
+（同样按反射报告的路径，因此 remap 也会作用于它）：
+
+```go
+json2define.WithEnumConstantIn(
+	reflect.TypeOf(example.Level(0)), "1", "example.com/levels", "High",
+)
+```
+
+标量字段、`,string` 字段以及 map 的键都会应用枚举常量替换。
+
+## 紧凑的结构体字面量
+
+默认情况下每个结构体都会展开为一行一个字段。对于小的纯标量结构体（例如特性描述、
+表行数据），这种写法比较啰嗦。传入 `WithCompactStructs` 并给出需要内联的类型的
+判定函数即可：
+
+```go
+json2define.WithCompactStructs(func(t reflect.Type) bool {
+	return t == reflect.TypeOf(spec.Feature{})
+})
+```
+
+被选中的结构体会渲染为单行。当它作为 slice、array 或 map 的元素出现时，会省略
+冗余的元素类型名，与 Go 复合字面量的省略规则一致：
+
+```go
+Features: []spec.Feature{
+	{Field: "af_media_source", From: spec.FeatureFromRequest, Type: spec.FeatureTypeString, Default: -1},
+	{Field: "af_other", From: spec.FeatureFromRedis, Type: spec.FeatureTypeBool, Default: 0},
+},
+```
+
+而不是：
+
+```go
+Features: []spec.Feature{
+	spec.Feature{
+		Field:   "af_media_source",
+		From:    spec.FeatureFromRequest,
+		Type:    spec.FeatureTypeString,
+		Default: -1,
+	},
+},
+```
+
+该选项对被选中类型出现的所有位置生效（顶层、slice 或 map 元素、嵌套字段）。只有
+结构体符合条件：外层的 slice、array 或 map 仍保持多行。若选中的结构体有某个字段
+本身跨多行（例如字段是 slice），它也会保持多行，避免把嵌套值挤到一行里。不传该
+选项时输出保持不变。
+
 ## 支持的特性
 
 - Struct（json tag、`omitempty`、`,string`、`-`、大小写不敏感匹配、嵌入
@@ -93,6 +176,10 @@ src, err := json2define.Generate(
   `float64`，与 `encoding/json` 的行为保持一致。
 - 由 base64 JSON 字符串生成 `[]byte`，以及 `json.RawMessage`。
 - 从 RFC 3339 及若干常见布局解析出的 `time.Time`。
+- 将具名枚举值输出为对应的 Go 常量（`WithEnumConstants`、
+  `WithEnumConstantIn`），适用于标量字段、`,string` 字段和 map 键。
+- 紧凑（`WithCompactStructs`）的单行结构体字面量，在 slice、array 和 map 中
+  省略元素类型名。
 - 自动管理 import。指针使用 Go 1.26 的 `new(expr)` 内建语法生成，无需任何辅助
   函数。
 - 忽略 JSON 中未知的键；缺失的字段保持零值。

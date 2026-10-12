@@ -27,6 +27,8 @@ type Generator struct {
 	varName     string
 	samePkg     string
 	remaps      map[string]packageRemap
+	enums       map[enumKey]map[string]enumConst
+	compact     func(reflect.Type) bool
 
 	imports *importManager
 }
@@ -36,6 +38,23 @@ type Generator struct {
 type packageRemap struct {
 	path string // real import path
 	name string // real package name used as the qualifier
+}
+
+// enumKey identifies a named type by the package path and name reflection
+// reports for it, so that it lines up with any [WithPackageRemap] applied to
+// the same package.
+type enumKey struct {
+	pkgPath string
+	name    string
+}
+
+// enumConst records the Go constant to emit for one enum value. pkgPath is the
+// package that declares the constant, expressed the way reflection reports it
+// (so remaps apply); an empty pkgPath means the constant lives next to the
+// enum type.
+type enumConst struct {
+	pkgPath string
+	name    string
 }
 
 // Option customizes a [Generator].
@@ -81,6 +100,81 @@ func WithPackageRemap(fromPath, toPath string) Option {
 		}
 		g.remaps[fromPath] = packageRemap{path: toPath, name: path.Base(toPath)}
 	}
+}
+
+// WithEnumConstants registers named constants for the enum type t, a defined
+// string, integer, or bool type.
+//
+// Each key is the value as it appears in the JSON and each value is the
+// identifier of the constant to emit instead of a conversion. The constant is
+// assumed to be declared next to t, so it is qualified exactly like t: package
+// remaps and the same-package rule (see [WithPackageRemap] and
+// [WithSamePackagePath]) apply unchanged.
+//
+// For example, registering {"request": "FeatureFromRequest"} for
+// example.FeatureFrom makes the generator emit example.FeatureFromRequest where it
+// would otherwise emit example.FeatureFrom("request"). Because t carries the
+// reflected package path, register with the same (possibly stand-in) type the
+// generator reflects over.
+func WithEnumConstants(t reflect.Type, constants map[string]string) Option {
+	return func(g *Generator) {
+		for value, name := range constants {
+			g.addEnumConstant(enumKey{t.PkgPath(), t.Name()}, value, "", name)
+		}
+	}
+}
+
+// WithEnumConstantIn registers a single enum value -> constant mapping where the
+// constant is declared in a different package than t. pkgPath is the import path
+// of that package as reflection reports it, so [WithPackageRemap] applies to it
+// as well; pass "" to declare the constant next to t (the same as
+// [WithEnumConstants]).
+func WithEnumConstantIn(t reflect.Type, value, pkgPath, name string) Option {
+	return func(g *Generator) {
+		g.addEnumConstant(enumKey{t.PkgPath(), t.Name()}, value, pkgPath, name)
+	}
+}
+
+func (g *Generator) addEnumConstant(key enumKey, value, pkgPath, name string) {
+	if g.enums == nil {
+		g.enums = make(map[enumKey]map[string]enumConst)
+	}
+	if g.enums[key] == nil {
+		g.enums[key] = make(map[string]enumConst)
+	}
+	g.enums[key][value] = enumConst{pkgPath: pkgPath, name: name}
+}
+
+// WithCompactStructs renders struct literals selected by pred on a single line,
+// for example:
+//
+//	{Field: "af_media_source", From: spec.FeatureFromRequest, Type: spec.FeatureTypeString, Default: -1}
+//
+// instead of the default one-field-per-line form:
+//
+//	spec.Feature{
+//		Field:   "af_media_source",
+//		From:    spec.FeatureFromRequest,
+//		Type:    spec.FeatureTypeString,
+//		Default: -1,
+//	}
+//
+// Only structs are eligible: an enclosing slice, array, or map keeps the
+// multi-line form, but its elements are inlined when pred accepts the element
+// type. Because Go lets the element type be elided in such literals, a
+// selected struct used as a slice element is emitted as `{...}`:
+//
+//	Features: []spec.Feature{
+//		{Field: "af_media_source", From: spec.FeatureFromRequest, Type: spec.FeatureTypeString, Default: -1},
+//		{Field: "af_other", From: spec.FeatureFromRedis, Type: spec.FeatureTypeBool, Default: 0},
+//	}
+//
+// A struct stays multi-line when any of its fields renders on more than one
+// line (a slice field, for example), so nested values never get crammed onto a
+// single line. Use pred to select small, leaf structs -- feature descriptors,
+// table rows -- and leave larger or nested types expanded.
+func WithCompactStructs(pred func(reflect.Type) bool) Option {
+	return func(g *Generator) { g.compact = pred }
 }
 
 // New returns a Generator configured with opts.

@@ -33,3 +33,54 @@ type Sample struct {
 	Ignored string            `json:"-"`
 	Embedded
 }
+
+// FeatureFrom is a string enum whose constants are registered in tests.
+type FeatureFrom string
+
+// Feature sources.
+const (
+	FeatureFromRequest FeatureFrom = "request"
+	FeatureFromRedis   FeatureFrom = "redis"
+	FeatureFromOther   FeatureFrom = "other"
+)
+
+// FeatureType is a string enum whose constants are registered in tests.
+type FeatureType string
+
+// Feature value types.
+const (
+	FeatureTypeFloat32 FeatureType = "float32"
+	FeatureTypeString  FeatureType = "string"
+	FeatureTypeBool    FeatureType = "bool"
+)
+
+// Level is an integer enum whose constants are registered in tests.
+type Level int
+
+// Feature levels.
+const (
+	LevelLow Level = iota
+	LevelHigh
+)
+
+// Features exercises enum fields, including an enum used as a map key.
+type Features struct {
+	From  FeatureFrom         `json:"from"`
+	Type  FeatureType         `json:"type"`
+	Level Level               `json:"level"`
+	ByKey map[FeatureFrom]int `json:"by_key"`
+}
+
+// FeatureSpec is a small, scalar-only struct used to exercise
+// [WithCompactStructs], typically as a slice element.
+type FeatureSpec struct {
+	Field   string      `json:"field"`
+	From    FeatureFrom `json:"from"`
+	Type    FeatureType `json:"type"`
+	Default int         `json:"default"`
+}
+
+// FeatureList wraps a slice of FeatureSpec.
+type FeatureList struct {
+	Features []FeatureSpec `json:"features"`
+}
